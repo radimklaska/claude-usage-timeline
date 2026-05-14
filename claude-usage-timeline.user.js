@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Usage Timeline Overlay
 // @namespace    https://klaska.net
-// @version      1.0.0
+// @version      1.0.1
 // @description  Overlay a day timeline over Claude usage progress bars, from last reset to next reset
 // @author       Radim Klaška
 // @match        https://claude.ai/settings/usage*
@@ -212,15 +212,46 @@
   // Run on load + watch for DOM changes (React re-renders)
   // ─────────────────────────────────────────────────────────
 
+  // Debounced runner — coalesces bursts of mutations into a single rAF tick
+  // and ignores mutations our own overlay caused (otherwise the observer
+  // would fire on every appendChild we make and lock the page).
+  let scheduled = false;
+  function scheduleProcess() {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      processAllBars();
+    });
+  }
+
+  function isOurMutation(mutation) {
+    const target = mutation.target;
+    if (target && target.nodeType === 1 &&
+        (target.hasAttribute?.(OVERLAY_ID_ATTR) ||
+         target.closest?.('[' + OVERLAY_ID_ATTR + ']'))) {
+      return true;
+    }
+    for (const n of mutation.addedNodes) {
+      if (n.nodeType === 1 && n.hasAttribute?.(OVERLAY_ID_ATTR)) return true;
+    }
+    for (const n of mutation.removedNodes) {
+      if (n.nodeType === 1 && n.hasAttribute?.(OVERLAY_ID_ATTR)) return true;
+    }
+    return false;
+  }
+
   function init() {
     processAllBars();
 
-    // Re-run when the usage page updates its counters
-    const observer = new MutationObserver(() => {
-      processAllBars();
+    // Re-run when the usage page updates its counters — but skip mutations
+    // we made ourselves, and debounce to one run per animation frame.
+    const observer = new MutationObserver((mutations) => {
+      if (mutations.every(isOurMutation)) return;
+      scheduleProcess();
     });
     const target = document.querySelector('main') || document.body;
-    observer.observe(target, { childList: true, subtree: true, characterData: true });
+    observer.observe(target, { childList: true, subtree: true });
 
     // Also refresh every 60 s so the "now" dot stays accurate
     setInterval(processAllBars, 60_000);
