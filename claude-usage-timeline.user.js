@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Usage Timeline Overlay
 // @namespace    https://klaska.net
-// @version      1.0.1
+// @version      1.0.2
 // @description  Overlay a day timeline over Claude usage progress bars, from last reset to next reset
 // @author       Radim Klaška
 // @match        https://claude.ai/settings/usage*
@@ -102,16 +102,31 @@
     const elapsed   = now.getTime() - lastReset.getTime();
     const totalDays = periodMs / (24 * 3600 * 1000);
 
-    // Remove existing overlay
-    const existing = pb.querySelector('[' + OVERLAY_ID_ATTR + ']');
-    if (existing) existing.remove();
+    // Mount the overlay on the bar's parent rather than the bar itself —
+    // the bar uses overflow:hidden to clip its fill, which also clips our
+    // day labels above it.
+    const host = pb.parentElement;
+    if (!host) return;
 
-    // Wrapper that sits on top of the bar (absolute, full size)
+    // Remove any prior overlay (either in the new host or, for upgrades
+    // from earlier versions, inside the bar itself).
+    host.querySelectorAll(':scope > [' + OVERLAY_ID_ATTR + ']').forEach(n => n.remove());
+    pb.querySelectorAll('[' + OVERLAY_ID_ATTR + ']').forEach(n => n.remove());
+
+    // Establish a positioning context on the host if it doesn't have one.
+    if (getComputedStyle(host).position === 'static') {
+      host.style.position = 'relative';
+    }
+
+    // Wrapper that overlays the bar exactly, sized from the bar's box.
     const overlay = document.createElement('div');
     overlay.setAttribute(OVERLAY_ID_ATTR, '1');
     overlay.style.cssText = [
       'position:absolute',
-      'inset:0',
+      `left:${pb.offsetLeft}px`,
+      `top:${pb.offsetTop}px`,
+      `width:${pb.offsetWidth}px`,
+      `height:${pb.offsetHeight}px`,
       'pointer-events:none',
       'z-index:10',
       'overflow:visible',
@@ -175,11 +190,7 @@
     ].join(';');
     overlay.appendChild(dot);
 
-    // Make the progress bar position:relative so we can use absolute children
-    const existingPos = getComputedStyle(pb).position;
-    if (existingPos === 'static') pb.style.position = 'relative';
-
-    pb.appendChild(overlay);
+    host.appendChild(overlay);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -252,6 +263,9 @@
     });
     const target = document.querySelector('main') || document.body;
     observer.observe(target, { childList: true, subtree: true });
+
+    // Bar width changes on window resize — overlay is pixel-sized, so realign.
+    window.addEventListener('resize', scheduleProcess);
 
     // Also refresh every 60 s so the "now" dot stays accurate
     setInterval(processAllBars, 60_000);
