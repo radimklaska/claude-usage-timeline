@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Usage Timeline Overlay
 // @namespace    https://klaska.net
-// @version      1.0.2
+// @version      1.0.3
 // @description  Overlay a day timeline over Claude usage progress bars, from last reset to next reset
 // @author       Radim Klaška
 // @match        https://claude.ai/settings/usage*
@@ -22,20 +22,27 @@
    * Parse the reset text shown next to each progress bar and return
    * { periodMs, nextReset: Date, lastReset: Date }
    * Returns null when the text cannot be parsed.
+   *
+   * sectionType disambiguates the "Resets in N hr M min" format, which the
+   * page uses for both the 5h session bar and the 7d weekly bars.
    */
-  function parseResetText(text) {
+  function parseResetText(text, sectionType) {
     if (!text) return null;
     const now = new Date();
 
-    // ── "Resets in X hr Y min" (session / hourly) ──────────
-    const inMatch = text.match(/Resets in\s+(?:(\d+)\s*hr)?\s*(?:(\d+)\s*min)?/i);
-    if (inMatch) {
-      const hrs  = parseInt(inMatch[1] || '0', 10);
-      const mins = parseInt(inMatch[2] || '0', 10);
-      const msLeft = (hrs * 3600 + mins * 60) * 1000;
+    // ── "Resets in N day(s) X hr Y min" (session / weekly when <7d left) ──
+    const inMatch = text.match(
+      /Resets in\s+(?:(\d+)\s*day(?:s)?)?\s*(?:(\d+)\s*hr)?\s*(?:(\d+)\s*min)?/i
+    );
+    if (inMatch && (inMatch[1] || inMatch[2] || inMatch[3])) {
+      const days = parseInt(inMatch[1] || '0', 10);
+      const hrs  = parseInt(inMatch[2] || '0', 10);
+      const mins = parseInt(inMatch[3] || '0', 10);
+      const msLeft = (days * 86400 + hrs * 3600 + mins * 60) * 1000;
       const nextReset = new Date(now.getTime() + msLeft);
-      // Session period: 5 hours is the typical Claude session window.
-      const periodMs  = 5 * 3600 * 1000;
+      const periodMs  = sectionType === 'weekly'
+        ? 7 * 24 * 3600 * 1000
+        : 5 * 3600 * 1000;
       const lastReset = new Date(nextReset.getTime() - periodMs);
       return { periodMs, nextReset, lastReset };
     }
@@ -197,6 +204,32 @@
   // Find all progress bars with a reset time and apply
   // ─────────────────────────────────────────────────────────
 
+  // The page uses the same "Resets in N hr M min" text for the 5h session
+  // bar and the 7d weekly bars; disambiguate by the enclosing section's H3.
+  function getSectionType(node) {
+    const section = node.closest?.('section');
+    if (!section) return null;
+    const h3 = section.querySelector('h3');
+    if (!h3) return null;
+    const title = h3.textContent.trim().toLowerCase();
+    if (title.includes('weekly')) return 'weekly';
+    if (title.includes('usage credits')) return 'monthly';
+    return 'session';
+  }
+
+  function findResetText(row) {
+    // Reset text lives in different elements per section (span for session/
+    // weekly, div for monthly credits), so walk text nodes instead of querying
+    // a specific tag.
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = node.textContent.trim();
+      if (/^Resets /i.test(t)) return t;
+    }
+    return null;
+  }
+
   function processAllBars() {
     const pbs = document.querySelectorAll('[role="progressbar"]');
     pbs.forEach((pb) => {
@@ -204,15 +237,9 @@
       const row = pb.parentElement?.parentElement?.parentElement;
       if (!row) return;
 
-      // Find the reset-time text in the row
-      const spans   = row.querySelectorAll('span');
-      let resetText = null;
-      for (const span of spans) {
-        const t = span.textContent.trim();
-        if (/^Resets /i.test(t)) { resetText = t; break; }
-      }
-
-      const info = parseResetText(resetText);
+      const resetText  = findResetText(row);
+      const sectionTy  = getSectionType(pb);
+      const info       = parseResetText(resetText, sectionTy);
       if (!info) return; // Skip bars with no parseable reset time
 
       buildOverlay(pb, info);
