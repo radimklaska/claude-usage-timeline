@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Claude Usage Timeline Overlay
 // @namespace    https://klaska.net
-// @version      1.0.3
+// @version      1.1.0
 // @description  Overlay a day timeline over Claude usage progress bars, from last reset to next reset
 // @author       Radim Klaška
-// @match        https://claude.ai/settings/usage*
+// @match        https://claude.ai/*
 // @grant        none
 // @run-at       document-idle
 // @downloadURL  https://raw.githubusercontent.com/radimklaska/claude-usage-timeline/main/claude-usage-timeline.user.js
@@ -231,7 +231,9 @@
   }
 
   function processAllBars() {
-    const pbs = document.querySelectorAll('[role="progressbar"]');
+    // The redesigned usage panel uses role="meter"; keep "progressbar" as a
+    // fallback for older markup.
+    const pbs = document.querySelectorAll('[role="meter"], [role="progressbar"]');
     pbs.forEach((pb) => {
       // Walk up to the "row" element (3 levels for Claude's DOM)
       const row = pb.parentElement?.parentElement?.parentElement;
@@ -279,35 +281,22 @@
     return false;
   }
 
-  function init() {
-    processAllBars();
+  processAllBars();
 
-    // Re-run when the usage page updates its counters — but skip mutations
-    // we made ourselves, and debounce to one run per animation frame.
-    const observer = new MutationObserver((mutations) => {
-      if (mutations.every(isOurMutation)) return;
-      scheduleProcess();
-    });
-    const target = document.querySelector('main') || document.body;
-    observer.observe(target, { childList: true, subtree: true });
+  // Usage settings now open as a modal dialog (claude.ai/<page>#settings/usage)
+  // portaled outside <main>, and the modal mounts/unmounts as the user opens
+  // and closes it — so watch the whole body permanently. Skip mutations we
+  // made ourselves, and debounce to one run per animation frame; when no
+  // usage bars are on the page, processAllBars is a cheap no-op.
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.every(isOurMutation)) return;
+    scheduleProcess();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 
-    // Bar width changes on window resize — overlay is pixel-sized, so realign.
-    window.addEventListener('resize', scheduleProcess);
+  // Bar width changes on window resize — overlay is pixel-sized, so realign.
+  window.addEventListener('resize', scheduleProcess);
 
-    // Also refresh every 60 s so the "now" dot stays accurate
-    setInterval(processAllBars, 60_000);
-  }
-
-  // Wait for the progress bars to appear (React app may load them async)
-  if (document.querySelector('[role="progressbar"]')) {
-    init();
-  } else {
-    const waitObserver = new MutationObserver(() => {
-      if (document.querySelector('[role="progressbar"]')) {
-        waitObserver.disconnect();
-        init();
-      }
-    });
-    waitObserver.observe(document.body, { childList: true, subtree: true });
-  }
+  // Also refresh every 60 s so the "now" dot stays accurate
+  setInterval(processAllBars, 60_000);
 })();

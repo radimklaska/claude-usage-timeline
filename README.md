@@ -1,6 +1,6 @@
 # Claude Usage Timeline Overlay
 
-A Tampermonkey / Violentmonkey userscript that draws a **day-by-day timeline** on top of the progress bars on [claude.ai/settings/usage](https://claude.ai/settings/usage).
+A Tampermonkey / Violentmonkey userscript that draws a **day-by-day timeline** on top of the progress bars in Claude's usage settings ([claude.ai/new#settings/usage](https://claude.ai/new#settings/usage)).
 
 At a glance you can see:
 
@@ -26,7 +26,7 @@ The weekly bar above shows day 1 of 7 (red tick = today), with the red dot marki
    👉 **[Install claude-usage-timeline.user.js](https://raw.githubusercontent.com/radimklaska/claude-usage-timeline/main/claude-usage-timeline.user.js)**
 
    Your userscript manager should pick up the `.user.js` URL and offer to install it. Auto-updates are wired through `@updateURL`, so you'll get new versions automatically.
-3. Open [claude.ai/settings/usage](https://claude.ai/settings/usage) — the overlay appears on each progress bar that has a parseable "Resets …" label.
+3. Open Claude's usage settings ([claude.ai/new#settings/usage](https://claude.ai/new#settings/usage), or Settings → Usage from within the app) — the overlay appears on each progress bar that has a parseable "Resets …" label.
 
 ## What it overlays
 
@@ -46,9 +46,9 @@ Colors:
 
 ## How it works
 
-- Watches the page with a `MutationObserver` because the usage screen re-renders as counters update.
+- Watches the page with a `MutationObserver` because the usage panel is a modal that mounts/unmounts and re-renders as counters update.
 - Refreshes every 60 s so the "now" dot stays accurate even if nothing changes on the page.
-- Pure DOM — no network calls, no storage, no permissions beyond `@match https://claude.ai/settings/usage*`.
+- Pure DOM — no network calls, no storage, no permissions beyond `@match https://claude.ai/*` (broad match because the usage modal can open over any page via `#settings/usage`).
 
 ## Development
 
@@ -57,9 +57,9 @@ The whole thing is a single file: [`claude-usage-timeline.user.js`](claude-usage
 To hack on it locally:
 
 1. Open the userscript in your manager's editor (or point the manager at a local file with file-watching).
-2. Reload `claude.ai/settings/usage`.
+2. Reload `claude.ai/new#settings/usage`.
 
-If Claude's DOM changes and the script stops finding the reset text, the place to look is `processAllBars()` — it walks three parents up from each `[role="progressbar"]` to find the row containing the `Resets …` span.
+If Claude's DOM changes and the script stops finding the reset text, the place to look is `processAllBars()` — it walks three parents up from each `[role="meter"]` (or legacy `[role="progressbar"]`) to find the row containing the `Resets …` text.
 
 ## License
 
